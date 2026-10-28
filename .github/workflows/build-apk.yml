@@ -1,6 +1,5 @@
 name: build-apk
-# 首次上传（含 index.html）会自动触发一次打包；之后手动在 Actions 页 Run workflow 即可。
-# 定时更新数据的提交只改 data 文件，不在此触发范围内，不会反复打包。
+# 应用名「财猫选号」与招财猫启动图标在此打包时注入；改 index.html 会自动触发打包。
 on:
   workflow_dispatch:
   push:
@@ -24,9 +23,14 @@ jobs:
           npm init -y
           npm i @capacitor/core@6 @capacitor/cli@6 @capacitor/android@6
           mkdir -p www && cp index.html data-ssq.json data-dlt.json data.json manifest.webmanifest sw.js icon-192.png icon-512.png www/
-          npx cap init Lottery com.motoke.lottery --web-dir www
+          npx cap init 财猫选号 com.motoke.lottery --web-dir www
           npx cap add android
           npx cap sync android
+          rm -rf android/app/src/main/res/mipmap-anydpi-v26
+          find android/app/src/main/res -name 'ic_launcher_foreground.xml' -delete
+          find android/app/src/main/res -name 'ic_launcher_background.xml' -delete
+          npm i --no-save sharp
+          node -e "const sharp=require('sharp');(async()=>{for(const [n,s] of [['mdpi',48],['hdpi',72],['xhdpi',96],['xxhdpi',144],['xxxhdpi',192]]){const out='android/app/src/main/res/mipmap-'+n+'/ic_launcher.png';await sharp('icon-512.png').resize(s,s).png().toFile(out);await sharp('icon-512.png').resize(s,s).png().toFile(out.replace('ic_launcher.png','ic_launcher_round.png'));}console.log('launcher icons replaced')})()"
           cd android && chmod +x gradlew && ./gradlew assembleDebug
       - uses: actions/upload-artifact@v4
         with: { name: ssq-apk, path: android/app/build/outputs/apk/debug/app-debug.apk }
