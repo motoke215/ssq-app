@@ -1,0 +1,38 @@
+name: build-apk
+# 首次上传（含 index.html）会自动触发一次打包；之后手动在 Actions 页 Run workflow 即可。
+# 定时更新数据的提交只改 data 文件，不在此触发范围内，不会反复打包。
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'index.html'
+      - '.github/workflows/build-apk.yml'
+permissions:
+  contents: write
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 20 }
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: 17 }
+      - name: Build debug APK
+        run: |
+          npm init -y
+          npm i @capacitor/core@6 @capacitor/cli@6 @capacitor/android@6
+          mkdir -p www && cp index.html data-ssq.json data-dlt.json data.json manifest.webmanifest sw.js icon-192.png icon-512.png www/
+          npx cap init Lottery com.motoke.lottery --web-dir www
+          npx cap add android
+          npx cap sync android
+          cd android && chmod +x gradlew && ./gradlew assembleDebug
+      - uses: actions/upload-artifact@v4
+        with: { name: ssq-apk, path: android/app/build/outputs/apk/debug/app-debug.apk }
+      - name: Publish APK to fixed release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view apk-build >/dev/null 2>&1 || gh release create apk-build -t "安卓安装包（自动打包）" -n "每次打包自动更新此附件。下载 app-debug.apk 安装到安卓手机（需允许安装未知来源应用）。"
+          gh release upload apk-build android/app/build/outputs/apk/debug/app-debug.apk --clobber
