@@ -186,7 +186,7 @@ function gen(){const o=$('out');if(H.length<300){o.textContent='历史数据不�
 <div class="kv"><span>中任意奖概率</span><span>约 ${(P.any*100).toFixed(1)}%</span></div>
 <div class="kv"><span>固定奖级期望返还</span><span>约 ¥${P.ev.toFixed(2)}</span></div>
 <div class="warn" style="margin-top:6px">一、二等奖为浮动奖金，未计入期望；长期来看期望返还低于花费。任何选号方法都不改变单注中奖概率，多通道推演的作用是让号码结构更合理${AC?'、并避开跟买人群扎堆的组合，中奖时少被分钱':''}。</div></div>
-${MX?`<div class="card"><div style="font-weight:600;margin-bottom:4px">紫微易经推演（娱乐）</div><div class="warn">${MX.lines.join('<br>')}</div><div class="warn" style="margin-top:4px">加权号码 — ${G.fl}：${MX.fTxt}；${G.bl}：${MX.bTxt}。紫微易经属传统文化娱乐推演，无科学预测依据；勾选后是在原算法概率上叠加这一层加权。</div></div>`:''}
+${MX?`<div class="card"><div style="font-weight:600;margin-bottom:4px">紫微易经推演（娱乐）</div><div class="warn">${MX.lines.join('<br>')}</div><div class="warn" style="margin-top:4px">加权号码 — ${G.fl}：${MX.fTxt}；${G.bl}：${MX.bTxt}。紫微易经属传统文化娱乐推演，无科学预测依据；勾选后是在原算法概率上叠加这一层加权。</div>${MX.chart||''}</div>`:''}
 <div class="warn">仅供个人分析娱乐，不构成任何押注建议。</div>`;$('go').disabled=false},30)}
 function backtest(E){const m=Math.min(200,E.rs.length-300),cut=E.rs.length-m,lr=learn(E.rs.slice(0,cut),G.fn,G.fk),lb=learn(E.bs.slice(0,cut),G.bn,G.bk),SM=structModel(E.rs.slice(0,cut),G.fn,G.fk),EE={ST:SM.ST,SM},A={f:0,b:0,p:0},R={f:0,b:0,p:0};let n=0;
  for(let t=cut;t<E.rs.length;t++){const lo=Math.max(0,t-600),pr=blend(sigs(E.rs.slice(lo,t),G.fn,G.fk),lr,G.fn),pb=blend(sigs(E.bs.slice(lo,t),G.bn,G.bk),lb,G.bn),act=E.rs[t],ab=E.bs[t];
@@ -232,10 +232,21 @@ const ZW_TABLE={2:[1,2,2,3,3,4,4,5,5,6,6,7,7,8,8,9,9,10,10,11,11,0,0,1,1,2,2,3,3
 4:[11,4,1,2,0,5,2,3,1,6,3,4,2,7,4,5,3,8,5,6,4,9,6,7,5,10,7,8,6,11],
 5:[6,11,4,1,2,7,0,5,2,3,8,1,6,3,4,9,2,7,4,5,10,3,8,5,6,11,4,9,6,7],
 6:[9,6,11,4,1,2,10,7,0,5,2,3,11,8,1,6,3,4,0,9,2,7,4,5,1,10,3,8,5,6]};
+const PAL_NAMES=['命宫','兄弟','夫妻','子女','财帛','疾厄','迁移','交友','官禄','田宅','福德','父母'];
+function starChart(zw){const tf=((4-zw)%12+12)%12,st={};
+ const put=(n,b)=>{st[n]=((b%12)+12)%12};
+ put('紫微',zw);put('天机',zw-1);put('太阳',zw-3);put('武曲',zw-4);put('天同',zw-5);put('廉贞',zw-8);
+ put('天府',tf);put('太阴',tf+1);put('贪狼',tf+2);put('巨门',tf+3);put('天相',tf+4);put('天梁',tf+5);put('七杀',tf+6);put('破军',tf+10);
+ return{tf,st}}
 function ziweiCalc(l){const ys=((l.y-4)%10+10)%10,cm=l.leap?l.m+1:l.m,mm=((cm-1)%12)+1,start=(2+mm-1)%12,
  mg=((start-MYST.hour)%12+12)%12,sg=(start+MYST.hour)%12,yinStem=[2,4,6,8,0][ys%5],mgStem=(yinStem+(mg-2+12)%12)%10,
- ju=JU_TABLE[Math.floor(mgStem/2)][Math.floor(mg/2)],zw=ZW_TABLE[ju][l.d-1],tf=((4-zw)%12+12)%12;
- return{mg,sg,mgStem,ju,zw,tf}}
+ ju=JU_TABLE[Math.floor(mgStem/2)][Math.floor(mg/2)],zw=ZW_TABLE[ju][l.d-1],{tf,st}=starChart(zw);
+ const palaces=[];for(let b=0;b<12;b++){palaces.push({b,stem:(yinStem+(b-2+12)%12)%10,name:PAL_NAMES[((mg-b)%12+12)%12],stars:Object.keys(st).filter(n=>st[n]===b),body:b===sg})}
+ return{mg,sg,mgStem,ju,zw,tf,st,palaces,yinStem}}
+function chartHTML(Z,bl){const cell=b=>{const P=Z.palaces[b];
+  return `<div style="border:1px solid var(--bd);border-radius:6px;padding:4px 5px;min-height:52px"><div style="font-size:11px;color:var(--m)">${STEMS[P.stem]}${BRANCHES[b]} · ${P.name}${P.body?' · 身宫':''}</div><div style="font-size:12px;line-height:1.5">${P.stars.join(' ')||'—'}</div></div>`};
+ const center=`<div style="grid-column:span 2;grid-row:span 2;border:1px solid var(--bd);border-radius:6px;padding:6px;font-size:12px;line-height:1.7">农历 ${bl.y} 年${bl.leap?'闰':''}${bl.m} 月 ${bl.d} 日 ${BRANCHES[MYST.hour]}时<br>${JU_NAME[Z.ju]} · 命宫${BRANCHES[Z.mg]}<br>命宫主星：${Z.palaces[Z.mg].stars.join('、')||'无主星（空宫）'}</div>`;
+ return `<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:4px;margin-top:6px">${cell(5)}${cell(6)}${cell(7)}${cell(8)}${cell(4)}${center}${cell(9)}${cell(3)}${cell(10)}${cell(2)}${cell(1)}${cell(0)}${cell(11)}</div>`}
 const TRN=['乾','兑','离','震','巽','坎','艮','坤'],
  TRB={1:[1,1,1],2:[1,1,0],3:[1,0,1],4:[1,0,0],5:[0,1,1],6:[0,1,0],7:[0,0,1],8:[0,0,0]};
 const GUA64=[['乾为天','天泽履','天火同人','天雷无妄','天风姤','天水讼','天山遁','天地否'],
@@ -261,14 +272,16 @@ function mysticCalc(){const M=meihuaCalc(new Date()),lines=[],fs=[],bs=[];
  if(MYST.birth){const bd=new Date(MYST.birth+'T12:00:00');
   if(!isNaN(bd)){const bl=lunarFromSolar(bd.getFullYear(),bd.getMonth()+1,bd.getDate());
    if(bl){Z=ziweiCalc(bl);
-    aF(Z.mg+1,'命宫'+BRANCHES[Z.mg]);aF(Z.sg+1,'身宫'+BRANCHES[Z.sg]);aF(Z.ju,JU_NAME[Z.ju]);aF(Z.zw+1,'紫微在'+BRANCHES[Z.zw]);aF(Z.tf+1,'天府在'+BRANCHES[Z.tf]);aF(bl.d,'生辰日');aF(bl.m,'生月');
-    aB(Z.mg+1,'命宫');aB(Z.ju,'局数');
-    lines.push(`紫微排盘：生辰农历 ${bl.y} 年${bl.leap?'闰':''}${bl.m} 月 ${bl.d} 日 ${BRANCHES[MYST.hour]}时，命宫在${BRANCHES[Z.mg]}（${STEMS[Z.mgStem]}${BRANCHES[Z.mg]}）、身宫在${BRANCHES[Z.sg]}，${JU_NAME[Z.ju]}，紫微在${BRANCHES[Z.zw]}、天府在${BRANCHES[Z.tf]}`)}}}
+    aF(Z.mg+1,'命宫'+BRANCHES[Z.mg]);aF(Z.sg+1,'身宫'+BRANCHES[Z.sg]);aF(Z.ju,JU_NAME[Z.ju]);aF(bl.d,'生辰日');aF(bl.m,'生月');
+    for(const[n,b]of Object.entries(Z.st))aF(b+1,n+'在'+BRANCHES[b]);
+    aB(Z.mg+1,'命宫');aB(Z.ju,'局数');aB(Z.st['紫微']+1,'紫微');aB(Z.st['天府']+1,'天府');
+    lines.push(`紫微排盘：生辰农历 ${bl.y} 年${bl.leap?'闰':''}${bl.m} 月 ${bl.d} 日 ${BRANCHES[MYST.hour]}时，命宫在${BRANCHES[Z.mg]}（${STEMS[Z.mgStem]}${BRANCHES[Z.mg]}）、身宫在${BRANCHES[Z.sg]}，${JU_NAME[Z.ju]}。十四主星与十二宫见下图命盘。`);
+    Z.chart=chartHTML(Z,bl)}}}
  if(!Z)lines.push('未填出生日期：紫微部分跳过，仅用梅花时间卦；填上出生日期与时辰可启用完整排盘。');
  const agg=seeds=>{const m=new Map();for(const[v,w]of seeds){if(!m.has(v))m.set(v,[]);m.get(v).push(w)}return m};
  const fm=agg(fs),bm=agg(bs);
  const txt=(m,size)=>[...m.entries()].map(([v,ws])=>[((v-1)%size)+1,ws]).sort((a,b)=>a[0]-b[0]).map(([x,ws])=>`${p2(x)}（${[...new Set(ws)].join('、')}）`).join(' ');
- return{lines,f:fm,b:bm,fTxt:txt(fm,G.fn),bTxt:txt(bm,G.bn)}}
+ return{lines,f:fm,b:bm,fTxt:txt(fm,G.fn),bTxt:txt(bm,G.bn),chart:Z?Z.chart:''}}
 function applyBoost(p,size,aggMap){const q=[...p],byNum=new Map();
  for(const[v,ws]of aggMap){const x=((v-1)%size)+1;byNum.set(x,(byNum.get(x)||0)+ws.length)}
  for(const[x,c]of byNum)q[x]*=Math.min(5,Math.pow(1.9,c));
