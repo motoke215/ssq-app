@@ -12,6 +12,7 @@ h1{font-size:20px;margin:6px 0}.warn{color:var(--m);font-size:12px}
 .seg{display:flex;border:1px solid var(--bd);border-radius:10px;overflow:hidden}.seg button{flex:1;background:var(--c);color:var(--t);border:0;padding:12px;font-size:17px}.seg button.on{background:var(--b);color:#fff}
 #go{width:100%;background:var(--b);color:#fff;border:0;border-radius:10px;padding:14px;font-size:18px}#go:disabled{opacity:.6}
 button.g{background:transparent;color:var(--t);border:1px solid var(--bd);border-radius:8px;padding:8px 12px;font-size:14px}
+#latest .ball{width:27px;height:27px;font-size:13px;margin:0 3px 3px 0}
 .ball{display:inline-flex;width:34px;height:34px;border-radius:50%;align-items:center;justify-content:center;color:#fff;font-weight:600;margin:0 4px 4px 0;background:var(--r)}.ball.b{background:var(--b)}
 .tk{padding:8px 0;border-bottom:1px dashed var(--bd)}.tk:last-of-type{border:0}.tk small{display:block;color:var(--m);font-size:12px}
 .kv{display:flex;justify-content:space-between;gap:10px;padding:3px 0}.kv span:last-child{text-align:right;font-weight:600}
@@ -31,8 +32,9 @@ summary{cursor:pointer;font-weight:600}textarea{width:100%;height:80px;backgroun
 <div class="gsel" style="margin-top:6px"><select id="betn" onchange="setBetn(this.value)" aria-label="生成注数"><option value="1">单式 1 注</option><option value="3">单式 3 注</option><option value="5">单式 5 注</option><option value="10">单式 10 注</option><option value="20">单式 20 注</option></select><select id="pmode" onchange="setPmode(this.value)" aria-label="出号模式"><option value="strict">严格模式（回测把关）</option><option value="history">历史概率模式（娱乐）</option></select></div>
 <label class="acrow"><input type="checkbox" id="myst" onchange="setMyst(this.checked)"><span>紫微易经：勾选后，按生成时刻与本期开奖时刻在后台推演加权，界面只显示结果（传统文化娱乐推演，无科学预测依据）</span></label>
 <div id="mystbox" style="display:none;margin:2px 0 6px"><div class="warn">勾选后，点生成的那一刻与本期开奖时刻会在后台做紫微易经推演（双时点起卦 + 时盘 + 日干支），界面只显示号码结果，不显示推演过程。此为传统文化娱乐玩法，无科学预测依据。</div></div>
-<div class="warn" style="margin-top:4px">填公历出生日期与出生时辰，排盘只在本机进行、不上传。不填生日时只用梅花时间卦。</div></div>
+</div>
 <button id="go" onclick="gen()">生成号码</button></div>
+<div id="latest"></div>
 <div id="out"></div>
 <details class="card" ontoggle="if(this.open)analyze()"><summary>后台分析与数据（自动完成，无需操作）</summary>
 <div id="an" style="margin-top:8px"></div><hr style="border:0;border-top:1px solid var(--bd);margin:12px 0">
@@ -69,7 +71,10 @@ function loadRemoteCache(){try{const j=JSON.parse(localStorage.getItem(RKEY)||'n
 async function autoUpdate(){const urls=[];G.dataFiles.forEach(f=>urls.push('./'+f));G.dataFiles.forEach(f=>urls.push(REMOTE_BASE+f));
  for(const url of urls){try{const ctl=new AbortController();const tm=setTimeout(()=>ctl.abort(),8000);const r=await fetch(url,{cache:'no-store',signal:ctl.signal});clearTimeout(tm);if(!r.ok)continue;const j=await r.json();if(!j||typeof j.records!='string'||!j.records)continue;const rows=pcg(j.records,G);if(!rows.length)continue;const latest=rows[rows.length-1].i;if(H.length&&latest<H[H.length-1].i)continue;REM=rows;RINFO={updated:j.updated||'',latest:j.latest||latest,cached:false};try{localStorage.setItem(RKEY,JSON.stringify({records:j.records,updated:j.updated||'',latest:j.latest||latest}))}catch(e){}mergeH();status();return}catch(e){}}}
 function parse(t){const out=[],D=/\d{4}[-\/.]\d{1,2}[-\/.]\d{1,2}/;for(const ln of t.split(/\n/)){const d=ln.match(D),n=ln.replace(D,' ').match(/\d+/g);if(!n)continue;const i=n.findIndex(x=>x.length>=5&&x.length<=7);if(i<0)continue;const v=n.slice(i+1,i+1+G.fk+G.bk).map(Number);if(v.length<G.fk+G.bk)continue;const f=srt(v.slice(0,G.fk)),b=srt(v.slice(G.fk));if(new Set(f).size==G.fk&&f.every(x=>x>=1&&x<=G.fn)&&new Set(b).size==G.bk&&b.every(x=>x>=1&&x<=G.bn))out.push({i:n[i].slice(-5),d:d?d[0]:'',f,b})}return out}
-function status(){$('ds').textContent=`${G.name}：共 ${H.length} 期，最新 ${H[H.length-1].i} 期${RINFO?'（自动更新'+(RINFO.cached?'·缓存':'')+(RINFO.updated?'，'+RINFO.updated:'')+'）':''}${EX.length?'（含你导入的 '+EX.length+' 期）':''}`}
+function renderLatest(){const el=$('latest');if(!el)return;if(!H.length){el.innerHTML='';return}
+ const rows=H.slice(-5).reverse().map(t=>`<div style="margin:2px 0"><span class="warn" style="display:inline-block;min-width:118px">第 ${t.i} 期 · ${t.d||''}</span>${balls(t)}</div>`).join('');
+ el.innerHTML=`<div class="card" style="margin-top:12px"><div style="font-weight:600;margin-bottom:6px">最新开奖（近 5 期）</div>${rows}</div>`}
+function status(){renderLatest();$('ds').textContent=`${G.name}：共 ${H.length} 期，最新 ${H[H.length-1].i} 期${RINFO?'（自动更新'+(RINFO.cached?'·缓存':'')+(RINFO.updated?'，'+RINFO.updated:'')+'）':''}${EX.length?'（含你导入的 '+EX.length+' 期）':''}`}
 function addRows(rows){if(!rows.length){$('ds').textContent='未识别到有效数据：每行需含期号、'+G.fk+' 个'+G.fl+'和 '+G.bk+' 个'+G.bl;return}rows.forEach(x=>{EX=EX.filter(e=>e.i!==x.i);EX.push(x)});saveH();status();$('ds').textContent='导入 '+rows.length+' 期；'+$('ds').textContent;analyze()}
 function doImport(){addRows(parse($('ta').value));$('ta').value=''}
 async function doFile(){const f=$('f').files[0];if(f)addRows(parse(await f.text()))}
