@@ -92,13 +92,14 @@ function prizeOf(fh,bh){const t=PRIZES[GID].find(p=>p[1]===fh&&p[2]===bh);return
 function checkBet(bet,draw){const hf=bet.f.filter(x=>draw.f.includes(x)).length,nf=bet.f.length,hb=bet.b.filter(x=>draw.b.includes(x)).length,nb=bet.b.length;const tiers={};let fixed=0,combos=0;
  for(let k=0;k<=G.fk;k++){const cf=combN(hf,k)*combN(nf-hf,G.fk-k);if(!cf)continue;for(let m=0;m<=G.bk;m++){const cb=combN(hb,m)*combN(nb-hb,G.bk-m);if(!cb)continue;const c=cf*cb;combos+=c;const p=prizeOf(k,m);if(p){tiers[p.name]=tiers[p.name]||{n:0,amt:p.amt};tiers[p.name].n+=c;fixed+=c*p.amt}}}
  return{tiers,fixed,combos,hf,hb}}
-function zoneParse(str,need,mx,maxLen){const runs=str.match(/\d+/g)||[];if(!runs.length)return null;
+function zoneParse(str,need,mx,maxLen,exact){const runs=str.match(/\d+/g)||[];if(!runs.length)return null;
  const chunk=r=>{const o=[];for(let i=0;i<r.length;i+=2)o.push(+r.slice(i,i+2));return o};
  const variants=[runs.flatMap(chunk)];
  if(runs[0].length===3){const r=runs[0];variants.push([+r[0],+r.slice(1),...runs.slice(1).flatMap(chunk)]);variants.push([+r.slice(0,2),+r[2],...runs.slice(1).flatMap(chunk)])}
  const inv=a=>{let n=0;for(let i=0;i<a.length;i++)for(let j=i+1;j<a.length;j++)if(a[i]>a[j])n++;return n};
- for(const strict of[true,false])for(const v of variants)for(const cand of[v,v.slice(1),v.slice(0,need)]){
-  if(cand.length>=need&&cand.length<=maxLen&&new Set(cand).size===cand.length&&cand.every(x=>x>=1&&x<=mx)&&(strict?cand.every((x,i)=>i===0||x>cand[i-1]):inv(cand)<=2))return{a:cand,strict}}
+ for(const strict of[true,false])for(const v of variants){const cands=exact?[v.slice(0,need),v,v.slice(1)]:[v,v.slice(1),v.slice(0,need)];
+  for(const cand of cands){
+  if(cand.length>=need&&cand.length<=maxLen&&(!exact||!strict||cand.length===need)&&new Set(cand).size===cand.length&&cand.every(x=>x>=1&&x<=mx)&&(strict?cand.every((x,i)=>i===0||x>cand[i-1]):inv(cand)<=2))return{a:cand,strict}}}
  return null}
 function parseTicketText(txt){const recent=new Set(H.slice(-340).map(x=>x.i));const last=H.length?H[H.length-1].i:'';const lyy=last.slice(0,2),lseq=+last.slice(2)||0;let issue='';
  const runs=txt.match(/\d+/g)||[];
@@ -106,10 +107,10 @@ function parseTicketText(txt){const recent=new Set(H.slice(-340).map(x=>x.i));co
  for(const t of runs){if(t.length===5&&plausible(t)){issue=t;break}if(t.length===7&&t.startsWith('20')&&plausible(t.slice(-5))){issue=t.slice(-5);break}}
  const bets=[];let structured=0,strictN=0;const strictFlags=[];
  txt.split(/\n/).forEach(ln=>{if(!ln.includes('+'))return;const parts=ln.split('+');
-  if(parts.length===2){const f=zoneParse(parts[0],G.fk,G.fn,20),b=zoneParse(parts[1],G.bk,G.bn,6);if(f&&b){bets.push({f:f.a,b:b.a});structured++;const st=f.strict&&b.strict;strictFlags.push(st);if(st)strictN++}return}
+  if(parts.length===2){const f=zoneParse(parts[0],G.fk,G.fn,20),b=zoneParse(parts[1],G.bk,G.bn,6,true);if(f&&b){bets.push({f:f.a,b:b.a});structured++;const st=f.strict&&b.strict;strictFlags.push(st);if(st)strictN++}return}
   let fz=zoneParse(parts[0],G.fk,G.fn,20);if(!fz)return;let front=fz.a,fStrict=fz.strict;
   for(let pi=1;pi<parts.length&&front;pi++){const isLast=pi===parts.length-1;const pruns=parts[pi].match(/\d+/g)||[];
-   if(isLast){const b=zoneParse(parts[pi],G.bk,G.bn,6);if(b){bets.push({f:front,b:b.a});structured++;const st=fStrict&&b.strict;strictFlags.push(st);if(st)strictN++}front=null;break}
+   if(isLast){const b=zoneParse(parts[pi],G.bk,G.bn,6,true);if(b){bets.push({f:front,b:b.a});structured++;const st=fStrict&&b.strict;strictFlags.push(st);if(st)strictN++}front=null;break}
    let done=false;
    for(let take=1;take<=2&&!done;take++){const bNums=pruns.slice(0,take).flatMap(r=>{const o=[];for(let i=0;i<r.length;i+=2)o.push(+r.slice(i,i+2));return o});
     if(bNums.length!==G.bk||!bNums.every(x=>x>=1&&x<=G.bn)||new Set(bNums).size!==bNums.length)continue;
@@ -200,8 +201,11 @@ async function doOCR(file){if(!file)return;const msg=$('ckMsg');
   for(let t=0;t<base.length;t++){msg.textContent='正在识别…（第 '+(t+1)+' / '+base.length+' 种方式）照片只在本机处理，不上传。';await runTry(base[t],t);if(best.strictN>=5&&best.issue)break}
   if(best.structured===0){for(let t=0;t<rescue.length;t++){msg.textContent='还没读出来，正在换方向重试…（转 '+rescue[t].rot+' 度）';await runTry(rescue[t],t);if(best.structured>=2)break}}
   let mergedNote='';
-  {const seen=new Set(),merged=[];raws.forEach(r=>{(r.pr.strictBets||[]).forEach(bt=>{const k=bt.f.join(',')+'|'+bt.b.join(',');if(!seen.has(k)){seen.add(k);merged.push(bt)}})});
-   if(merged.length>best.bets.length){const iss=best.issue||(raws.find(r=>r.pr.issue)||{pr:{}}).pr.issue;best={issue:iss,bets:merged.slice(0,10),structured:best.structured,strictN:merged.length};mergedNote='（多种方式合并）'}}
+  if(best.strictN<=3){const groups=new Map();
+   raws.forEach((r,ti)=>{(r.pr.strictBets||[]).forEach(bt=>{const k=bt.f.join(',');if(!groups.has(k))groups.set(k,{f:bt.f,votes:[]});groups.get(k).votes.push({b:bt.b,ti})})});
+   const merged=[];
+   groups.forEach(g=>{const cnt=new Map();g.votes.forEach(x=>{const bk=x.b.join(',');cnt.set(bk,(cnt.get(bk)||0)+1)});let win=null,winC=-1,winT=1e9;g.votes.forEach(x=>{const c=cnt.get(x.b.join(','));if(c>winC||(c===winC&&x.ti<winT)){win=x.b;winC=c;winT=x.ti}});merged.push({f:g.f,b:win})});
+   if(merged.length>best.bets.length){const iss=best.issue||(raws.find(r=>r.pr.issue)||{pr:{}}).pr.issue;best={issue:iss,bets:merged.slice(0,10),structured:best.structured,strictN:best.strictN};mergedNote='（多种方式合并）'}}
   await worker.terminate();
   const lines=raws.map((r,i)=>'【方式'+(i+1)+'：'+r.lab+(r.rot?'·转'+r.rot+'度':'')+'】带+号注 '+r.pr.structured+' 注（严格 '+r.pr.strictN+'），共 '+r.pr.bets.length+' 注，期号 '+(r.pr.issue||'无'));
   const winIdx=bestCfg?base.concat(rescue).indexOf(bestCfg):-1;
