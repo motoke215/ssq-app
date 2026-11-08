@@ -36,6 +36,7 @@ summary{cursor:pointer;font-weight:600}textarea{width:100%;height:80px;backgroun
 <button id="go" onclick="gen()">生成号码</button></div>
 <div id="latest"></div>
 <div id="out"></div>
+<div id="checker"></div>
 <details class="card" ontoggle="if(this.open)analyze()"><summary>后台分析与数据（自动完成，无需操作）</summary>
 <div id="an" style="margin-top:8px"></div><hr style="border:0;border-top:1px solid var(--bd);margin:12px 0">
 <div class="warn" id="gnote"></div>
@@ -80,6 +81,70 @@ function addRows(rows){if(!rows.length){$('ds').textContent='未识别到有效�
 function doImport(){addRows(parse($('ta').value));$('ta').value=''}
 async function doFile(){const f=$('f').files[0];if(f)addRows(parse(await f.text()))}
 function clearData(){if(confirm('确定清除你自己导入的数据？内置与自动更新的数据会保留。')){EX=[];saveH();status();analyze()}}
+
+// ===== 拍照查奖：识别票面号码 → 人工核对 → 按期对奖算奖金 =====
+// 奖级表按官方规则（2026-11-08 核对福彩/体彩官网）：[奖级, 主区命中数, 副区命中数, 固定奖金（0 表示浮动奖）]
+const PRIZES={
+ ssq:[['一等奖',6,1,0],['二等奖',6,0,0],['三等奖',5,1,3000],['四等奖',5,0,200],['四等奖',4,1,200],['五等奖',4,0,10],['五等奖',3,1,10],['六等奖',2,1,5],['六等奖',1,1,5],['六等奖',0,1,5]],
+ dlt:[['一等奖',5,2,0],['二等奖',5,1,0],['三等奖',5,0,10000],['四等奖',4,2,3000],['五等奖',4,1,300],['六等奖',3,2,200],['七等奖',4,0,100],['八等奖',3,1,15],['八等奖',2,2,15],['九等奖',3,0,5],['九等奖',2,1,5],['九等奖',1,2,5],['九等奖',0,2,5]]};
+function combN(n,k){if(k<0||k>n||n<0)return 0;let r=1;for(let i=0;i<k;i++)r=r*(n-i)/(i+1);return Math.round(r)}
+function prizeOf(fh,bh){const t=PRIZES[GID].find(p=>p[1]===fh&&p[2]===bh);return t?{name:t[0],amt:t[3]}:null}
+function checkBet(bet,draw){const hf=bet.f.filter(x=>draw.f.includes(x)).length,nf=bet.f.length,hb=bet.b.filter(x=>draw.b.includes(x)).length,nb=bet.b.length;const tiers={};let fixed=0,combos=0;
+ for(let k=0;k<=G.fk;k++){const cf=combN(hf,k)*combN(nf-hf,G.fk-k);if(!cf)continue;for(let m=0;m<=G.bk;m++){const cb=combN(hb,m)*combN(nb-hb,G.bk-m);if(!cb)continue;const c=cf*cb;combos+=c;const p=prizeOf(k,m);if(p){tiers[p.name]=tiers[p.name]||{n:0,amt:p.amt};tiers[p.name].n+=c;fixed+=c*p.amt}}}
+ return{tiers,fixed,combos,hf,hb}}
+function parseTicketText(txt){let issue='';const known=new Set(H.map(x=>x.i));const runs=txt.match(/\d+/g)||[];
+ for(const t of runs){if(t.length===5&&known.has(t)){issue=t;break}if(t.length===7&&t.startsWith('20')&&known.has(t.slice(-5))){issue=t.slice(-5);break}}
+ if(!issue){const t5=runs.find(t=>t.length===5);if(t5)issue=t5}
+ const bets=[];const seqOK=(arr,n,mx)=>arr.length>=n&&new Set(arr).size===arr.length&&arr.every((v,i)=>v>=1&&v<=mx&&(i===0||v>arr[i-1]));
+ txt.split(/\n/).forEach(ln=>{if(ln.includes('+')){const pr=ln.split('+');const fa=(pr[0].match(/\d{1,2}/g)||[]).map(Number),ba=(pr.slice(1).join(' ').match(/\d{1,2}/g)||[]).map(Number);
+   if(seqOK(fa,G.fk,G.fn)&&seqOK(ba,G.bk,G.bn)&&fa.length<=20&&ba.length<=6){bets.push({f:fa,b:ba});return}}
+  const nums=(ln.match(/\d{1,2}/g)||[]).map(Number);
+  for(let s=0;s+G.fk+G.bk<=nums.length;s++){const f=nums.slice(s,s+G.fk),b=nums.slice(s+G.fk,s+G.fk+G.bk);if(seqOK(f,G.fk,G.fn)&&seqOK(b,G.bk,G.bn)){bets.push({f,b});break}}});
+ return{issue,bets}}
+let ckBets=[];
+function ballRow(nums,hits,blue){return nums.map(n=>`<span class="ball${blue?' b':''}"${hits&&hits.includes(n)?' style="box-shadow:0 0 0 3px #f5c542"':''}>${String(n).padStart(2,'0')}</span>`).join('')}
+function renderChecker(){const el=$('checker');if(!el)return;
+ el.innerHTML=`<div class="card" style="margin-top:12px"><div style="font-weight:600;margin-bottom:6px">拍照查奖（对奖计算器）</div>
+ <div class="warn">先切到这张票的彩种，再拍照片自动识别号码。识别结果必须逐个核对改对再对奖——认错一个数字，奖就对错了。照片只在本机识别，不上传。</div>
+ <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px"><label class="g" style="border:1px solid var(--bd);border-radius:8px;padding:8px 12px;font-size:14px;cursor:pointer">拍照 / 选照片<input type="file" id="ckFile" accept="image/*" capture="environment" style="display:none" onchange="doOCR(this.files[0])"></label>
+ <button class="g" onclick="ckManual()">手动输入号码</button></div>
+ <div id="ckMsg" class="warn" style="margin-top:6px"></div>
+ <div id="ckEdit" style="display:none;margin-top:8px">
+ <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center"><span>期号</span><input id="ckIssue" inputmode="numeric" style="width:90px" placeholder="如 26127"><span>倍数</span><input id="ckMult" type="number" value="1" min="1" max="99" style="width:56px">${GID==='dlt'?'<label class="acrow"><input type="checkbox" id="ckAdd"><span>追加投注</span></label>':''}</div>
+ <div id="ckBets"></div>
+ <div style="display:flex;gap:8px;margin-top:6px"><button class="g" onclick="ckAddBet()">＋ 加一注</button><button class="g" onclick="doCheck()">开始对奖</button></div>
+ <div class="warn" style="margin-top:4px">每注两个输入框：${G.fl}一个、${G.bl}一个，数字用空格隔开。复式把选的号码全填进去（自动按组合算奖）；胆拖票请拆成单式再查。</div>
+ </div><div id="ckRes" style="margin-top:8px"></div></div>`;
+ ckBets=[];ckRenderBets()}
+function ckRenderBets(){const box=$('ckBets');if(!box)return;box.innerHTML=ckBets.map((b,i)=>`<div style="margin-top:6px"><span class="warn">第 ${i+1} 注</span> <button class="g" onclick="ckDelBet(${i})">删</button><input id="ckF${i}" value="${b.f.join(' ')}" style="width:100%;margin-top:2px" placeholder="${G.fl}（如 04 05 20 21 26 30）"><input id="ckB${i}" value="${b.b.join(' ')}" style="width:100%;margin-top:2px" placeholder="${G.bl}（如 12）"></div>`).join('')}
+function ckReadBets(){const out=[];for(let i=0;i<ckBets.length;i++){if(!$('ckF'+i))break;out.push({f:($('ckF'+i).value.match(/\d{1,2}/g)||[]).map(Number),b:($('ckB'+i).value.match(/\d{1,2}/g)||[]).map(Number)})}return out}
+function ckAddBet(){ckBets=ckReadBets();ckBets.push({f:[],b:[]});ckRenderBets()}
+function ckDelBet(i){ckBets=ckReadBets();ckBets.splice(i,1);ckRenderBets()}
+function ckManual(){$('ckEdit').style.display='block';if(!ckBets.length){ckBets=[{f:[],b:[]}];ckRenderBets()}$('ckMsg').textContent='手动输入：填期号和每注号码，点开始对奖。'}
+function doCheck(){ckBets=ckReadBets();const iv=($('ckIssue').value.match(/\d+/g)||[]).join('').slice(-5);const draw=H.find(x=>x.i===iv);const msg=$('ckMsg'),res=$('ckRes');
+ if(!iv){msg.textContent='先填期号（票面上的 5 位期号，如 26127）。';return}
+ if(!draw){msg.textContent='数据里还没有第 '+iv+' 期（可能还没开奖，或自动更新还没跟上），等 App 更新到这一期再查。';res.innerHTML='';return}
+ const mult=Math.min(99,Math.max(1,+($('ckMult').value||1)));const isAdd=GID==='dlt'&&!!($('ckAdd')&&$('ckAdd').checked);
+ let totFixed=0,totCombos=0;const floatHits=[];let any=false;
+ let html=`<div style="font-weight:600">第 ${draw.i} 期开奖号码</div><div style="margin:4px 0">${ballRow(draw.f,null)}${ballRow(draw.b,null,true)}</div>`;
+ ckBets.forEach((bet,idx)=>{const fOK=bet.f.length>=G.fk&&new Set(bet.f).size===bet.f.length&&bet.f.every(n=>n>=1&&n<=G.fn);const bOK=bet.b.length>=G.bk&&new Set(bet.b).size===bet.b.length&&bet.b.every(n=>n>=1&&n<=G.bn);
+  if(!fOK||!bOK){html+=`<div class="warn">第 ${idx+1} 注号码不完整、有重复或超范围，已跳过（${G.fl}至少 ${G.fk} 个，${G.bl}至少 ${G.bk} 个）。</div>`;return}
+  any=true;const r=checkBet(bet,draw);totCombos+=r.combos;totFixed+=r.fixed;const names=Object.keys(r.tiers);const single=bet.f.length===G.fk&&bet.b.length===G.bk;
+  html+=`<div class="tk"><div>${single?ballRow(bet.f,draw.f)+' '+ballRow(bet.b,draw.b,true):(G.fl+' '+bet.f.join(' ')+'（中 '+r.hf+' 个） · '+G.bl+' '+bet.b.join(' ')+'（中 '+r.hb+' 个）')}</div><small>${r.combos} 注组合 · ${names.length?names.map(n=>{const t=r.tiers[n];if(!t.amt)floatHits.push(n);return n+' ×'+t.n+(t.amt?'（¥'+(t.amt*t.n)+'）':'（浮动奖金）')}).join('；'):'未中奖'}</small></div>`});
+ if(!any){res.innerHTML=html;msg.textContent='没有可对奖的注，请先把号码填对。';return}
+ totFixed*=mult;
+ html+=`<div style="margin-top:6px;font-weight:600">固定奖金合计：¥${totFixed}${mult>1?'（已乘 '+mult+' 倍）':''}${floatHits.length?'；另中 '+[...new Set(floatHits)].join('、')+'，浮动奖金以官方公布为准'+(isAdd?'（追加投注另有对应浮动奖金的 80%）':''):''}</div><div class="warn">按你核对后的号码计算，仅供自己核对，兑奖以彩票终端为准。</div>`;
+ res.innerHTML=html;msg.textContent='对奖完成：第 '+draw.i+' 期，共 '+totCombos+' 注组合。'}
+let tessLoading=null;
+function loadTess(){if(window.Tesseract)return Promise.resolve();if(!tessLoading)tessLoading=new Promise((ok,no)=>{const s=document.createElement('script');s.src='https://cdn.jsdelivr.net/npm/tesseract.js@5.0.5/dist/tesseract.min.js';s.onload=ok;s.onerror=no;document.head.appendChild(s)});return tessLoading}
+async function doOCR(file){if(!file)return;const msg=$('ckMsg');msg.textContent='正在识别…首次使用要联网下载识别引擎（几 MB），请稍候。照片只在本机处理，不上传。';
+ try{await loadTess();const url=URL.createObjectURL(file);const img=new Image();await new Promise((ok,no)=>{img.onload=ok;img.onerror=no;img.src=url});
+  const cv=document.createElement('canvas');const sc=Math.min(2,1800/(img.width||1800));cv.width=Math.round(img.width*sc);cv.height=Math.round(img.height*sc);const cx=cv.getContext('2d');cx.filter='grayscale(1) contrast(1.5)';cx.drawImage(img,0,0,cv.width,cv.height);
+  const worker=await Tesseract.createWorker('eng');await worker.setParameters({tessedit_char_whitelist:'0123456789+ '});const{data}=await worker.recognize(cv);await worker.terminate();URL.revokeObjectURL(url);
+  const p=parseTicketText(data.text);$('ckEdit').style.display='block';if(p.issue)$('ckIssue').value=p.issue;
+  ckBets=p.bets.length?p.bets:[{f:[],b:[]}];ckRenderBets();
+  msg.textContent=p.bets.length?('识别到 '+p.bets.length+' 注。请逐个核对号码（识别可能出错），改对后点开始对奖；倍数也要核对票面。'):'没识别出成注的号码行：把票拍正、拍近一点重拍，或用手动输入。';
+ }catch(e){$('ckEdit').style.display='block';if(!ckBets.length){ckBets=[{f:[],b:[]}];ckRenderBets()}msg.textContent='识别没跑起来（可能没网，下不到识别引擎）。改用手动输入号码，照样能对奖。'}}
 
 // ===== 多通道信号：每个通道给出一套号码概率分布 =====
 // 通道增减只改这里；每个通道都要过 learn() 的逐期回测，赢不了随机权重自动归零。
@@ -215,7 +280,7 @@ ${PMODE=='history'?'<div class="warn">当前选的是历史概率模式：上面
 
 // ===== 彩种切换 =====
 function fillGames(){const bs=$('brand'),gs=$('game');const brands=[...new Set(Object.values(GAMES).map(g=>g.brand))];bs.innerHTML=brands.map(b=>`<option ${b===G.brand?'selected':''}>${b}</option>`).join('');gs.innerHTML=Object.entries(GAMES).filter(([_,g])=>g.brand===G.brand).map(([id,g])=>`<option value="${id}" ${id===GID?'selected':''}>${g.name}</option>`).join('')}
-function switchGame(id){GID=id;G=GAMES[id];KEY='ssq_data_v1_'+id;RKEY='ssq_remote_v1_'+id;EX=[];REM=[];RINFO=null;ENG=null;$('ttl').textContent=G.name+' · 智能选号';document.title=G.name+'分析工具';$('gnote').textContent=G.note+'；打开本页时会自动联网更新到最新一期，没网时用上次缓存的数据。自动更新万一漏了，也可以把新几期粘贴到这里手动导入（每行含期号、'+G.fk+' 个'+G.fl+'和 '+G.bk+' 个'+G.bl+'），导入的数据只保存在本机浏览器。';fillGames();loadH();loadRemoteCache();mergeH();setMode(MODE);status();initControls();autoUpdate()}
+function switchGame(id){GID=id;G=GAMES[id];KEY='ssq_data_v1_'+id;RKEY='ssq_remote_v1_'+id;EX=[];REM=[];RINFO=null;ENG=null;$('ttl').textContent=G.name+' · 智能选号';document.title=G.name+'分析工具';$('gnote').textContent=G.note+'；打开本页时会自动联网更新到最新一期，没网时用上次缓存的数据。自动更新万一漏了，也可以把新几期粘贴到这里手动导入（每行含期号、'+G.fk+' 个'+G.fl+'和 '+G.bk+' 个'+G.bl+'），导入的数据只保存在本机浏览器。';fillGames();loadH();loadRemoteCache();mergeH();setMode(MODE);status();initControls();autoUpdate();renderChecker()}
 function onBrand(){const first=Object.entries(GAMES).find(([_,g])=>g.brand===$('brand').value);if(first)switchGame(first[0])}
 
 // ===== 紫微易经（独立娱乐模块）：农历换算 + 紫微简化排盘（命宫/身宫/五行局/紫微/天府） + 梅花易数时间卦 =====
