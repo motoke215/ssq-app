@@ -104,18 +104,18 @@ function parseTicketText(txt){const recent=new Set(H.slice(-340).map(x=>x.i));co
  const runs=txt.match(/\d+/g)||[];
  const plausible=c=>{if(recent.has(c))return true;const y=c.slice(0,2),q=+c.slice(2);if(y===lyy&&q>lseq&&q<=lseq+10)return true;if(lseq>=140&&q>=1&&q<=10&&+y===(+lyy+1)%100)return true;return false};
  for(const t of runs){if(t.length===5&&plausible(t)){issue=t;break}if(t.length===7&&t.startsWith('20')&&plausible(t.slice(-5))){issue=t.slice(-5);break}}
- const bets=[];let structured=0,strictN=0;
+ const bets=[];let structured=0,strictN=0;const strictFlags=[];
  txt.split(/\n/).forEach(ln=>{if(!ln.includes('+'))return;const parts=ln.split('+');
-  if(parts.length===2){const f=zoneParse(parts[0],G.fk,G.fn,20),b=zoneParse(parts[1],G.bk,G.bn,6);if(f&&b){bets.push({f:f.a,b:b.a});structured++;if(f.strict&&b.strict)strictN++}return}
+  if(parts.length===2){const f=zoneParse(parts[0],G.fk,G.fn,20),b=zoneParse(parts[1],G.bk,G.bn,6);if(f&&b){bets.push({f:f.a,b:b.a});structured++;const st=f.strict&&b.strict;strictFlags.push(st);if(st)strictN++}return}
   let fz=zoneParse(parts[0],G.fk,G.fn,20);if(!fz)return;let front=fz.a,fStrict=fz.strict;
   for(let pi=1;pi<parts.length&&front;pi++){const isLast=pi===parts.length-1;const pruns=parts[pi].match(/\d+/g)||[];
-   if(isLast){const b=zoneParse(parts[pi],G.bk,G.bn,6);if(b){bets.push({f:front,b:b.a});structured++;if(fStrict&&b.strict)strictN++}front=null;break}
+   if(isLast){const b=zoneParse(parts[pi],G.bk,G.bn,6);if(b){bets.push({f:front,b:b.a});structured++;const st=fStrict&&b.strict;strictFlags.push(st);if(st)strictN++}front=null;break}
    let done=false;
    for(let take=1;take<=2&&!done;take++){const bNums=pruns.slice(0,take).flatMap(r=>{const o=[];for(let i=0;i<r.length;i+=2)o.push(+r.slice(i,i+2));return o});
     if(bNums.length!==G.bk||!bNums.every(x=>x>=1&&x<=G.bn)||new Set(bNums).size!==bNums.length)continue;
-    const nf=zoneParse(pruns.slice(take).join(' '),G.fk,G.fn,20);if(nf){bets.push({f:front,b:bNums});structured++;if(fStrict)strictN++;front=nf.a;fStrict=nf.strict;done=true}}
+    const nf=zoneParse(pruns.slice(take).join(' '),G.fk,G.fn,20);if(nf){bets.push({f:front,b:bNums});structured++;strictFlags.push(fStrict);if(fStrict)strictN++;front=nf.a;fStrict=nf.strict;done=true}}
    if(!done)front=null}});
- if(bets.length)return{issue,bets,structured,strictN};
+ if(bets.length)return{issue,bets,structured,strictN,strictBets:bets.filter((_,i)=>strictFlags[i])};
  const inR=(arr,mx)=>arr.every(v=>v>=1&&v<=mx);const dst=a=>new Set(a).size===a.length;const asc=a=>a.every((v,i)=>i===0||v>a[i-1]);
  const okSeq=(arr,n,mx)=>arr.length>=n&&dst(arr)&&inR(arr,mx)&&asc(arr);
  const junkLine=ln=>{const rs=ln.match(/\d+/g)||[];return rs.some(r=>r.length>=9)||rs.join('').length>40};
@@ -124,7 +124,7 @@ function parseTicketText(txt){const recent=new Set(H.slice(-340).map(x=>x.i));co
   let st=0;while(st+G.fk+G.bk<=nums.length){const f=nums.slice(st,st+G.fk),b=nums.slice(st+G.fk,st+G.fk+G.bk);if(okSeq(f,G.fk,G.fn)&&okSeq(b,G.bk,G.bn)){out.push({f,b});st+=G.fk+G.bk}else st++}});
  if(!out.length){const nums=[];(txt.match(/\d+/g)||[]).forEach(r=>{if(r.length<=8)for(let i=0;i<r.length;i+=2)nums.push(+r.slice(i,i+2))});
   for(let st=0;st+G.fk+G.bk<=nums.length;st++){const f=nums.slice(st,st+G.fk),b=nums.slice(st+G.fk,st+G.fk+G.bk);if(okSeq(f,G.fk,G.fn)&&okSeq(b,G.bk,G.bn)){out.push({f,b});st+=G.fk+G.bk-1}}}
- return{issue,bets:out,structured:0,strictN:0}}
+ return{issue,bets:out,structured:0,strictN:out.length,strictBets:out}}
 
 let ckBets=[];
 function ballRow(nums,hits,blue){return nums.map(n=>`<span class="ball${blue?' b':''}"${hits&&hits.includes(n)?' style="box-shadow:0 0 0 3px #f5c542"':''}>${String(n).padStart(2,'0')}</span>`).join('')}
@@ -197,8 +197,11 @@ async function doOCR(file){if(!file)return;const msg=$('ckMsg');
    const{data}=await worker.recognize(mkCv(cfg.bin,cfg.rot));const pr=parseTicketText(data.text);
    raws.push({lab:cfg.lab,rot:cfg.rot,pr,text:data.text});
    if(!best||score(pr)>score(best)){best=pr;bestCfg=cfg}return pr};
-  for(let t=0;t<base.length;t++){msg.textContent='正在识别…（第 '+(t+1)+' 种方式）照片只在本机处理，不上传。';await runTry(base[t],t);if(best.strictN>=3&&best.issue)break}
+  for(let t=0;t<base.length;t++){msg.textContent='正在识别…（第 '+(t+1)+' / '+base.length+' 种方式）照片只在本机处理，不上传。';await runTry(base[t],t);if(best.strictN>=5&&best.issue)break}
   if(best.structured===0){for(let t=0;t<rescue.length;t++){msg.textContent='还没读出来，正在换方向重试…（转 '+rescue[t].rot+' 度）';await runTry(rescue[t],t);if(best.structured>=2)break}}
+  let mergedNote='';
+  {const seen=new Set(),merged=[];raws.forEach(r=>{(r.pr.strictBets||[]).forEach(bt=>{const k=bt.f.join(',')+'|'+bt.b.join(',');if(!seen.has(k)){seen.add(k);merged.push(bt)}})});
+   if(merged.length>best.bets.length){const iss=best.issue||(raws.find(r=>r.pr.issue)||{pr:{}}).pr.issue;best={issue:iss,bets:merged.slice(0,10),structured:best.structured,strictN:merged.length};mergedNote='（多种方式合并）'}}
   await worker.terminate();
   const lines=raws.map((r,i)=>'【方式'+(i+1)+'：'+r.lab+(r.rot?'·转'+r.rot+'度':'')+'】带+号注 '+r.pr.structured+' 注（严格 '+r.pr.strictN+'），共 '+r.pr.bets.length+' 注，期号 '+(r.pr.issue||'无'));
   const winIdx=bestCfg?base.concat(rescue).indexOf(bestCfg):-1;
@@ -207,7 +210,7 @@ async function doOCR(file){if(!file)return;const msg=$('ckMsg');
   $('ckEdit').style.display='block';if(best.issue)$('ckIssue').value=best.issue;else $('ckIssue').value='';
   ckBets=best.bets.length?best.bets:[{f:[],b:[]}];ckRenderBets();
   const rotNote=bestCfg&&bestCfg.rot?'（照片方向不对，已自动转正）':'';
-  msg.textContent=best.bets.length?('识别完成：共 '+best.bets.length+' 注'+rotNote+'。请逐个核对号码（识别可能出错），改对后点开始对奖；'+(best.issue?'期号也核对一下。':'期号没认出来，请手动填票面期号。')):'还是没识别出成注的号码行：把票拍正、拍近一点重拍，或用手动输入。也可以展开下面的“识别原文”截图发我，我对着原文帮你调。';
+  msg.textContent=best.bets.length?('识别完成：共 '+best.bets.length+' 注'+rotNote+mergedNote+'。请逐个核对号码（识别可能出错），改对后点开始对奖；'+(best.issue?'期号也核对一下。':'期号没认出来，请手动填票面期号。')):'还是没识别出成注的号码行：把票拍正、拍近一点重拍，或用手动输入。也可以展开下面的“识别原文”截图发我，我对着原文帮你调。';
  }catch(e){$('ckEdit').style.display='block';if(!ckBets.length){ckBets=[{f:[],b:[]}];ckRenderBets()}msg.textContent='识别没跑起来。可以改用手动输入号码，照样能对奖。'}}
 
 // ===== 多通道信号：每个通道给出一套号码概率分布 =====
