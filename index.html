@@ -92,10 +92,29 @@ function prizeOf(fh,bh){const t=PRIZES[GID].find(p=>p[1]===fh&&p[2]===bh);return
 function checkBet(bet,draw){const hf=bet.f.filter(x=>draw.f.includes(x)).length,nf=bet.f.length,hb=bet.b.filter(x=>draw.b.includes(x)).length,nb=bet.b.length;const tiers={};let fixed=0,combos=0;
  for(let k=0;k<=G.fk;k++){const cf=combN(hf,k)*combN(nf-hf,G.fk-k);if(!cf)continue;for(let m=0;m<=G.bk;m++){const cb=combN(hb,m)*combN(nb-hb,G.bk-m);if(!cb)continue;const c=cf*cb;combos+=c;const p=prizeOf(k,m);if(p){tiers[p.name]=tiers[p.name]||{n:0,amt:p.amt};tiers[p.name].n+=c;fixed+=c*p.amt}}}
  return{tiers,fixed,combos,hf,hb}}
+function zoneParse(str,need,mx,maxLen){const runs=str.match(/\d+/g)||[];if(!runs.length)return null;
+ const chunk=r=>{const o=[];for(let i=0;i<r.length;i+=2)o.push(+r.slice(i,i+2));return o};
+ const variants=[runs.flatMap(chunk)];
+ if(runs[0].length===3){const r=runs[0];variants.push([+r[0],+r.slice(1),...runs.slice(1).flatMap(chunk)]);variants.push([+r.slice(0,2),+r[2],...runs.slice(1).flatMap(chunk)])}
+ for(const strict of[true,false])for(const v of variants)for(const cand of[v,v.slice(1),v.slice(0,need)]){
+  if(cand.length>=need&&cand.length<=maxLen&&new Set(cand).size===cand.length&&cand.every(x=>x>=1&&x<=mx)&&(!strict||cand.every((x,i)=>i===0||x>cand[i-1])))return cand}
+ return null}
 function parseTicketText(txt){const known=new Set(H.map(x=>x.i));const yy=H.length?H[H.length-1].i.slice(0,2):'';let issue='';
  const runs=txt.match(/\d+/g)||[];
  for(const t of runs){if(t.length===5&&known.has(t)){issue=t;break}if(t.length===7&&t.startsWith('20')&&known.has(t.slice(-5))){issue=t.slice(-5);break}}
  if(!issue){for(const t of runs){const cand=t.length===5?t:(t.length===7&&t.startsWith('20')?t.slice(-5):'');if(cand&&cand.slice(0,2)===yy){const q=+cand.slice(2);if(q>=1&&q<=160){issue=cand;break}}}}
+ const bets=[];
+ txt.split(/\n/).forEach(ln=>{if(!ln.includes('+'))return;const parts=ln.split('+');
+  if(parts.length===2){const f=zoneParse(parts[0],G.fk,G.fn,20),b=zoneParse(parts[1],G.bk,G.bn,6);if(f&&b)bets.push({f,b});return}
+  let front=zoneParse(parts[0],G.fk,G.fn,20);if(!front)return;
+  for(let pi=1;pi<parts.length&&front;pi++){const isLast=pi===parts.length-1;const runs=parts[pi].match(/\d+/g)||[];
+   if(isLast){const b=zoneParse(parts[pi],G.bk,G.bn,6);if(b)bets.push({f:front,b});front=null;break}
+   let done=false;
+   for(let take=1;take<=2&&!done;take++){const bNums=runs.slice(0,take).flatMap(r=>{const o=[];for(let i=0;i<r.length;i+=2)o.push(+r.slice(i,i+2));return o});
+    if(bNums.length!==G.bk||!bNums.every(x=>x>=1&&x<=G.bn)||new Set(bNums).size!==bNums.length)continue;
+    const nf=zoneParse(runs.slice(take).join(' '),G.fk,G.fn,20);if(nf){bets.push({f:front,b:bNums});front=nf;done=true}}
+   if(!done)front=null}});
+ if(bets.length)return{issue,bets};
  const inR=(arr,mx)=>arr.every(v=>v>=1&&v<=mx);const dst=a=>new Set(a).size===a.length;const asc=a=>a.every((v,i)=>i===0||v>a[i-1]);
  const okSeq=(arr,n,mx,strict)=>arr.length>=n&&dst(arr)&&inR(arr,mx)&&(!strict||asc(arr));
  const scanLines=(strict)=>{const out=[];
@@ -104,11 +123,11 @@ function parseTicketText(txt){const known=new Set(H.map(x=>x.i));const yy=H.leng
    const nums=(ln.match(/\d{1,2}/g)||[]).map(Number);
    let st=0;while(st+G.fk+G.bk<=nums.length){const f=nums.slice(st,st+G.fk),b=nums.slice(st+G.fk,st+G.fk+G.bk);if(okSeq(f,G.fk,G.fn,strict)&&okSeq(b,G.bk,G.bn,strict)){out.push({f,b});st+=G.fk+G.bk}else st++}});
   return out};
- let bets=scanLines(true);if(!bets.length)bets=scanLines(false);
- if(!bets.length){const nums=(txt.match(/\d{1,2}/g)||[]).map(Number);
-  for(const strict of[true,false]){const out=[];for(let st=0;st+G.fk+G.bk<=nums.length;st++){const f=nums.slice(st,st+G.fk),b=nums.slice(st+G.fk,st+G.fk+G.bk);if(okSeq(f,G.fk,G.fn,strict)&&okSeq(b,G.bk,G.bn,strict)){out.push({f,b});st+=G.fk+G.bk-1}}
-   if(out.length){bets=out;break}}}
- return{issue,bets}}
+ let out=scanLines(true);if(!out.length)out=scanLines(false);
+ if(!out.length){const nums=(txt.match(/\d{1,2}/g)||[]).map(Number);
+  for(const strict of[true,false]){const o2=[];for(let st=0;st+G.fk+G.bk<=nums.length;st++){const f=nums.slice(st,st+G.fk),b=nums.slice(st+G.fk,st+G.fk+G.bk);if(okSeq(f,G.fk,G.fn,strict)&&okSeq(b,G.bk,G.bn,strict)){o2.push({f,b});st+=G.fk+G.bk-1}}
+   if(o2.length){out=o2;break}}}
+ return{issue,bets:out}}
 
 let ckBets=[];
 function ballRow(nums,hits,blue){return nums.map(n=>`<span class="ball${blue?' b':''}"${hits&&hits.includes(n)?' style="box-shadow:0 0 0 3px #f5c542"':''}>${String(n).padStart(2,'0')}</span>`).join('')}
@@ -154,23 +173,33 @@ function doCheck(){ckBets=ckReadBets();const iv=($('ckIssue').value.match(/\d+/g
 
 let tessLoading=null;
 function loadTess(){if(window.Tesseract)return Promise.resolve();if(!tessLoading)tessLoading=new Promise((ok,no)=>{const s=document.createElement('script');s.src='https://cdn.jsdelivr.net/npm/tesseract.js@5.0.5/dist/tesseract.min.js';s.onload=ok;s.onerror=no;document.head.appendChild(s)});return tessLoading}
-async function doOCR(file){if(!file)return;const msg=$('ckMsg');msg.textContent='正在识别…首次使用要联网下载识别引擎（几 MB），请稍候。照片只在本机处理，不上传。';
- try{await loadTess();const url=URL.createObjectURL(file);const img=new Image();await new Promise((ok,no)=>{img.onload=ok;img.onerror=no;img.src=url});
+function tessStage(m){if(!m||!m.status)return'';const pc=Math.round((m.progress||0)*100);const st=m.status;
+ if(st==='recognizing text')return'';
+ if(st.includes('traineddata'))return '正在下载识别数据包：'+pc+'%';
+ if(st.includes('core'))return '正在下载识别引擎：'+pc+'%';
+ if(st.includes('initializing'))return '正在启动识别引擎：'+pc+'%';
+ return''}
+async function doOCR(file){if(!file)return;const msg=$('ckMsg');
+ try{msg.textContent='正在下载识别组件（首次使用要下载约 5 MB，只下这一次）…';
+  try{await loadTess()}catch(e){msg.textContent='识别组件下载失败，多半是网络不通。检查网络后重试，或用手动输入号码对奖。';return}
+  const url=URL.createObjectURL(file);const img=new Image();await new Promise((ok,no)=>{img.onload=ok;img.onerror=no;img.src=url});
   const mkCv=(bin)=>{const cv=document.createElement('canvas');const sc=Math.min(2,2000/(img.width||2000));cv.width=Math.round(img.width*sc);cv.height=Math.round(img.height*sc);const cx=cv.getContext('2d');cx.filter='grayscale(1) contrast(1.5)';cx.drawImage(img,0,0,cv.width,cv.height);
    if(bin){const idt=cx.getImageData(0,0,cv.width,cv.height),d=idt.data;for(let i=0;i<d.length;i+=4){const v=d[i]>150?255:0;d[i]=d[i+1]=d[i+2]=v}cx.putImageData(idt,0,0)}return cv};
-  const worker=await Tesseract.createWorker('eng');
-  const tries=[{bin:false,psm:'6',wl:''},{bin:false,psm:'6',wl:'0123456789+ '},{bin:true,psm:'6',wl:''},{bin:true,psm:'4',wl:'0123456789+ '}];
+  let lastStage='';
+  const worker=await Tesseract.createWorker('eng',1,{logger:m=>{const t=tessStage(m);if(t&&t!==lastStage){lastStage=t;msg.textContent=t+'（首次才需要下载，之后就不用了）'}}});
+  msg.textContent='识别引擎已准备好，开始识别照片…';
+  const tries=[{bin:true,psm:'4',wl:'0123456789+ '},{bin:true,psm:'6',wl:'0123456789+ '},{bin:false,psm:'6',wl:'0123456789+ '},{bin:true,psm:'4',wl:''}];
   let best=null;
   for(let t=0;t<tries.length;t++){msg.textContent='正在识别…（第 '+(t+1)+' 种方式）照片只在本机处理，不上传。';
    await worker.setParameters({tessedit_pageseg_mode:tries[t].psm,tessedit_char_whitelist:tries[t].wl});
    const{data}=await worker.recognize(mkCv(tries[t].bin));const pr=parseTicketText(data.text);
    if(!best||pr.bets.length>best.bets.length||(pr.bets.length===best.bets.length&&pr.issue&&!best.issue))best=pr;
-   if(best.bets.length>=1&&best.issue)break}
+   if(best.bets.length>=3&&best.issue)break}
   await worker.terminate();URL.revokeObjectURL(url);
   $('ckEdit').style.display='block';if(best.issue)$('ckIssue').value=best.issue;else $('ckIssue').value='';
   ckBets=best.bets.length?best.bets:[{f:[],b:[]}];ckRenderBets();
-  msg.textContent=best.bets.length?('识别到 '+best.bets.length+' 注。请逐个核对号码（识别可能出错），改对后点开始对奖；'+(best.issue?'期号也核对一下。':'期号没认出来，请手动填票面期号。')):'还是没识别出成注的号码行：把票拍正、拍近一点重拍，或用手动输入。也可以把这张票的照片发到聊天里，我拿真票帮你调识别。';
- }catch(e){$('ckEdit').style.display='block';if(!ckBets.length){ckBets=[{f:[],b:[]}];ckRenderBets()}msg.textContent='识别没跑起来（可能没网，下不到识别引擎）。改用手动输入号码，照样能对奖。'}}
+  msg.textContent=best.bets.length?('识别完成：共 '+best.bets.length+' 注。请逐个核对号码（识别可能出错），改对后点开始对奖；'+(best.issue?'期号也核对一下。':'期号没认出来，请手动填票面期号。')):'还是没识别出成注的号码行：把票拍正、拍近一点重拍，或用手动输入。也可以把这张票的照片发到聊天里，我拿真票帮你调识别。';
+ }catch(e){$('ckEdit').style.display='block';if(!ckBets.length){ckBets=[{f:[],b:[]}];ckRenderBets()}msg.textContent='识别没跑起来。可以改用手动输入号码，照样能对奖。'}}
 
 // ===== 多通道信号：每个通道给出一套号码概率分布 =====
 // 通道增减只改这里；每个通道都要过 learn() 的逐期回测，赢不了随机权重自动归零。
