@@ -92,15 +92,24 @@ function prizeOf(fh,bh){const t=PRIZES[GID].find(p=>p[1]===fh&&p[2]===bh);return
 function checkBet(bet,draw){const hf=bet.f.filter(x=>draw.f.includes(x)).length,nf=bet.f.length,hb=bet.b.filter(x=>draw.b.includes(x)).length,nb=bet.b.length;const tiers={};let fixed=0,combos=0;
  for(let k=0;k<=G.fk;k++){const cf=combN(hf,k)*combN(nf-hf,G.fk-k);if(!cf)continue;for(let m=0;m<=G.bk;m++){const cb=combN(hb,m)*combN(nb-hb,G.bk-m);if(!cb)continue;const c=cf*cb;combos+=c;const p=prizeOf(k,m);if(p){tiers[p.name]=tiers[p.name]||{n:0,amt:p.amt};tiers[p.name].n+=c;fixed+=c*p.amt}}}
  return{tiers,fixed,combos,hf,hb}}
-function parseTicketText(txt){let issue='';const known=new Set(H.map(x=>x.i));const runs=txt.match(/\d+/g)||[];
+function parseTicketText(txt){const known=new Set(H.map(x=>x.i));const yy=H.length?H[H.length-1].i.slice(0,2):'';let issue='';
+ const runs=txt.match(/\d+/g)||[];
  for(const t of runs){if(t.length===5&&known.has(t)){issue=t;break}if(t.length===7&&t.startsWith('20')&&known.has(t.slice(-5))){issue=t.slice(-5);break}}
- if(!issue){const t5=runs.find(t=>t.length===5);if(t5)issue=t5}
- const bets=[];const seqOK=(arr,n,mx)=>arr.length>=n&&new Set(arr).size===arr.length&&arr.every((v,i)=>v>=1&&v<=mx&&(i===0||v>arr[i-1]));
- txt.split(/\n/).forEach(ln=>{if(ln.includes('+')){const pr=ln.split('+');const fa=(pr[0].match(/\d{1,2}/g)||[]).map(Number),ba=(pr.slice(1).join(' ').match(/\d{1,2}/g)||[]).map(Number);
-   if(seqOK(fa,G.fk,G.fn)&&seqOK(ba,G.bk,G.bn)&&fa.length<=20&&ba.length<=6){bets.push({f:fa,b:ba});return}}
-  const nums=(ln.match(/\d{1,2}/g)||[]).map(Number);
-  for(let s=0;s+G.fk+G.bk<=nums.length;s++){const f=nums.slice(s,s+G.fk),b=nums.slice(s+G.fk,s+G.fk+G.bk);if(seqOK(f,G.fk,G.fn)&&seqOK(b,G.bk,G.bn)){bets.push({f,b});break}}});
+ if(!issue){for(const t of runs){const cand=t.length===5?t:(t.length===7&&t.startsWith('20')?t.slice(-5):'');if(cand&&cand.slice(0,2)===yy){const q=+cand.slice(2);if(q>=1&&q<=160){issue=cand;break}}}}
+ const inR=(arr,mx)=>arr.every(v=>v>=1&&v<=mx);const dst=a=>new Set(a).size===a.length;const asc=a=>a.every((v,i)=>i===0||v>a[i-1]);
+ const okSeq=(arr,n,mx,strict)=>arr.length>=n&&dst(arr)&&inR(arr,mx)&&(!strict||asc(arr));
+ const scanLines=(strict)=>{const out=[];
+  txt.split(/\n/).forEach(ln=>{if(ln.includes('+')){const pr=ln.split('+');const fa=(pr[0].match(/\d{1,2}/g)||[]).map(Number),ba=(pr.slice(1).join(' ').match(/\d{1,2}/g)||[]).map(Number);
+    if(okSeq(fa,G.fk,G.fn,strict)&&okSeq(ba,G.bk,G.bn,strict)&&fa.length<=20&&ba.length<=6){out.push({f:fa,b:ba});return}}
+   const nums=(ln.match(/\d{1,2}/g)||[]).map(Number);
+   let st=0;while(st+G.fk+G.bk<=nums.length){const f=nums.slice(st,st+G.fk),b=nums.slice(st+G.fk,st+G.fk+G.bk);if(okSeq(f,G.fk,G.fn,strict)&&okSeq(b,G.bk,G.bn,strict)){out.push({f,b});st+=G.fk+G.bk}else st++}});
+  return out};
+ let bets=scanLines(true);if(!bets.length)bets=scanLines(false);
+ if(!bets.length){const nums=(txt.match(/\d{1,2}/g)||[]).map(Number);
+  for(const strict of[true,false]){const out=[];for(let st=0;st+G.fk+G.bk<=nums.length;st++){const f=nums.slice(st,st+G.fk),b=nums.slice(st+G.fk,st+G.fk+G.bk);if(okSeq(f,G.fk,G.fn,strict)&&okSeq(b,G.bk,G.bn,strict)){out.push({f,b});st+=G.fk+G.bk-1}}
+   if(out.length){bets=out;break}}}
  return{issue,bets}}
+
 let ckBets=[];
 function ballRow(nums,hits,blue){return nums.map(n=>`<span class="ball${blue?' b':''}"${hits&&hits.includes(n)?' style="box-shadow:0 0 0 3px #f5c542"':''}>${String(n).padStart(2,'0')}</span>`).join('')}
 function renderChecker(){const el=$('checker');if(!el)return;
@@ -121,29 +130,46 @@ function ckReadBets(){const out=[];for(let i=0;i<ckBets.length;i++){if(!$('ckF'+
 function ckAddBet(){ckBets=ckReadBets();ckBets.push({f:[],b:[]});ckRenderBets()}
 function ckDelBet(i){ckBets=ckReadBets();ckBets.splice(i,1);ckRenderBets()}
 function ckManual(){$('ckEdit').style.display='block';if(!ckBets.length){ckBets=[{f:[],b:[]}];ckRenderBets()}$('ckMsg').textContent='手动输入：填期号和每注号码，点开始对奖。'}
+const CN_NUM=['一','二','三','四','五','六','七','八','九','十'];
+function betLabel(i){return '第'+(CN_NUM[i]||(i+1))+'注'}
 function doCheck(){ckBets=ckReadBets();const iv=($('ckIssue').value.match(/\d+/g)||[]).join('').slice(-5);const draw=H.find(x=>x.i===iv);const msg=$('ckMsg'),res=$('ckRes');
- if(!iv){msg.textContent='先填期号（票面上的 5 位期号，如 26127）。';return}
- if(!draw){msg.textContent='数据里还没有第 '+iv+' 期（可能还没开奖，或自动更新还没跟上），等 App 更新到这一期再查。';res.innerHTML='';return}
+ if(!iv){msg.textContent='先填期号（票面上的 5 位期号，如 26128）。';res.innerHTML='';return}
+ if(!draw){res.innerHTML=`<div class="card" style="margin-top:4px;border:1px solid #f5c542"><div style="font-weight:600">期号对不上，稍后再试</div><div class="warn" style="margin-top:4px">数据里还没有第 ${iv} 期：可能这一期还没开奖，或者开奖数据还没更新到（一般开奖后第二天早上自动更新完毕）。先核对期号有没有填错；没填错就等数据更新后再查。</div></div>`;msg.textContent='期号对不上，稍后再试。';return}
  const mult=Math.min(99,Math.max(1,+($('ckMult').value||1)));const isAdd=GID==='dlt'&&!!($('ckAdd')&&$('ckAdd').checked);
- let totFixed=0,totCombos=0;const floatHits=[];let any=false;
+ let totFixed=0,totCombos=0,any=false,anyWin=false;const floatAll=[];
  let html=`<div style="font-weight:600">第 ${draw.i} 期开奖号码</div><div style="margin:4px 0">${ballRow(draw.f,null)}${ballRow(draw.b,null,true)}</div>`;
  ckBets.forEach((bet,idx)=>{const fOK=bet.f.length>=G.fk&&new Set(bet.f).size===bet.f.length&&bet.f.every(n=>n>=1&&n<=G.fn);const bOK=bet.b.length>=G.bk&&new Set(bet.b).size===bet.b.length&&bet.b.every(n=>n>=1&&n<=G.bn);
-  if(!fOK||!bOK){html+=`<div class="warn">第 ${idx+1} 注号码不完整、有重复或超范围，已跳过（${G.fl}至少 ${G.fk} 个，${G.bl}至少 ${G.bk} 个）。</div>`;return}
-  any=true;const r=checkBet(bet,draw);totCombos+=r.combos;totFixed+=r.fixed;const names=Object.keys(r.tiers);const single=bet.f.length===G.fk&&bet.b.length===G.bk;
-  html+=`<div class="tk"><div>${single?ballRow(bet.f,draw.f)+' '+ballRow(bet.b,draw.b,true):(G.fl+' '+bet.f.join(' ')+'（中 '+r.hf+' 个） · '+G.bl+' '+bet.b.join(' ')+'（中 '+r.hb+' 个）')}</div><small>${r.combos} 注组合 · ${names.length?names.map(n=>{const t=r.tiers[n];if(!t.amt)floatHits.push(n);return n+' ×'+t.n+(t.amt?'（¥'+(t.amt*t.n)+'）':'（浮动奖金）')}).join('；'):'未中奖'}</small></div>`});
+  if(!fOK||!bOK){html+=`<div class="warn">${betLabel(idx)}号码不完整、有重复或超范围，已跳过（${G.fl}至少 ${G.fk} 个，${G.bl}至少 ${G.bk} 个）。</div>`;return}
+  any=true;const r=checkBet(bet,draw);totCombos+=r.combos;const betFixed=r.fixed*mult;totFixed+=betFixed;const names=Object.keys(r.tiers);const floats=names.filter(n=>!r.tiers[n].amt);floats.forEach(n=>{if(!floatAll.includes(n))floatAll.push(n)});
+  const tiersTxt=names.map(n=>{const t=r.tiers[n];return n+' ×'+t.n+(t.amt?'':'（浮动）')}).join('；');
+  const won=betFixed>0||floats.length>0;if(won)anyWin=true;
+  const amtLine=betFixed>0?`${betLabel(idx)}中奖金额：${betFixed.toLocaleString()} 元`:(floats.length?`${betLabel(idx)}：中了 ${floats.join('、')}（浮动奖金，金额以官方公布为准）`:`${betLabel(idx)}：未中奖`);
+  const single=bet.f.length===G.fk&&bet.b.length===G.bk;
+  html+=`<div class="tk"><div style="font-weight:600">${amtLine}</div>${single?`<div style="margin-top:2px">${ballRow(bet.f,draw.f)} ${ballRow(bet.b,draw.b,true)}</div>`:`<div class="warn">${G.fl} ${bet.f.join(' ')}（中 ${r.hf} 个） · ${G.bl} ${bet.b.join(' ')}（中 ${r.hb} 个）</div>`}${tiersTxt?`<small>${r.combos} 注组合 · ${tiersTxt}</small>`:''}</div>`});
  if(!any){res.innerHTML=html;msg.textContent='没有可对奖的注，请先把号码填对。';return}
- totFixed*=mult;
- html+=`<div style="margin-top:6px;font-weight:600">固定奖金合计：¥${totFixed}${mult>1?'（已乘 '+mult+' 倍）':''}${floatHits.length?'；另中 '+[...new Set(floatHits)].join('、')+'，浮动奖金以官方公布为准'+(isAdd?'（追加投注另有对应浮动奖金的 80%）':''):''}</div><div class="warn">按你核对后的号码计算，仅供自己核对，兑奖以彩票终端为准。</div>`;
+ if(!anyWin){html+=`<div style="margin-top:8px;font-weight:600;font-size:17px">本张彩票没中奖，下次必中，恭喜发财</div>`}
+ else{html+=`<div style="margin-top:8px;font-weight:600;font-size:17px">总中奖金额：${totFixed.toLocaleString()} 元${mult>1?'（已乘 '+mult+' 倍）':''}${floatAll.length?'；另有 '+floatAll.join('、')+'（浮动奖金未计入，以官方公布为准）'+(isAdd?'；追加投注另有对应浮动奖金的 80%':''):''}</div>`}
+ html+=`<div class="warn" style="margin-top:4px">按你核对后的号码计算，仅供自己核对，兑奖以彩票终端为准。派奖活动期间的活动奖另按当期公告算。</div>`;
  res.innerHTML=html;msg.textContent='对奖完成：第 '+draw.i+' 期，共 '+totCombos+' 注组合。'}
+
 let tessLoading=null;
 function loadTess(){if(window.Tesseract)return Promise.resolve();if(!tessLoading)tessLoading=new Promise((ok,no)=>{const s=document.createElement('script');s.src='https://cdn.jsdelivr.net/npm/tesseract.js@5.0.5/dist/tesseract.min.js';s.onload=ok;s.onerror=no;document.head.appendChild(s)});return tessLoading}
 async function doOCR(file){if(!file)return;const msg=$('ckMsg');msg.textContent='正在识别…首次使用要联网下载识别引擎（几 MB），请稍候。照片只在本机处理，不上传。';
  try{await loadTess();const url=URL.createObjectURL(file);const img=new Image();await new Promise((ok,no)=>{img.onload=ok;img.onerror=no;img.src=url});
-  const cv=document.createElement('canvas');const sc=Math.min(2,1800/(img.width||1800));cv.width=Math.round(img.width*sc);cv.height=Math.round(img.height*sc);const cx=cv.getContext('2d');cx.filter='grayscale(1) contrast(1.5)';cx.drawImage(img,0,0,cv.width,cv.height);
-  const worker=await Tesseract.createWorker('eng');await worker.setParameters({tessedit_char_whitelist:'0123456789+ '});const{data}=await worker.recognize(cv);await worker.terminate();URL.revokeObjectURL(url);
-  const p=parseTicketText(data.text);$('ckEdit').style.display='block';if(p.issue)$('ckIssue').value=p.issue;
-  ckBets=p.bets.length?p.bets:[{f:[],b:[]}];ckRenderBets();
-  msg.textContent=p.bets.length?('识别到 '+p.bets.length+' 注。请逐个核对号码（识别可能出错），改对后点开始对奖；倍数也要核对票面。'):'没识别出成注的号码行：把票拍正、拍近一点重拍，或用手动输入。';
+  const mkCv=(bin)=>{const cv=document.createElement('canvas');const sc=Math.min(2,2000/(img.width||2000));cv.width=Math.round(img.width*sc);cv.height=Math.round(img.height*sc);const cx=cv.getContext('2d');cx.filter='grayscale(1) contrast(1.5)';cx.drawImage(img,0,0,cv.width,cv.height);
+   if(bin){const idt=cx.getImageData(0,0,cv.width,cv.height),d=idt.data;for(let i=0;i<d.length;i+=4){const v=d[i]>150?255:0;d[i]=d[i+1]=d[i+2]=v}cx.putImageData(idt,0,0)}return cv};
+  const worker=await Tesseract.createWorker('eng');
+  const tries=[{bin:false,psm:'6',wl:''},{bin:false,psm:'6',wl:'0123456789+ '},{bin:true,psm:'6',wl:''},{bin:true,psm:'4',wl:'0123456789+ '}];
+  let best=null;
+  for(let t=0;t<tries.length;t++){msg.textContent='正在识别…（第 '+(t+1)+' 种方式）照片只在本机处理，不上传。';
+   await worker.setParameters({tessedit_pageseg_mode:tries[t].psm,tessedit_char_whitelist:tries[t].wl});
+   const{data}=await worker.recognize(mkCv(tries[t].bin));const pr=parseTicketText(data.text);
+   if(!best||pr.bets.length>best.bets.length||(pr.bets.length===best.bets.length&&pr.issue&&!best.issue))best=pr;
+   if(best.bets.length>=1&&best.issue)break}
+  await worker.terminate();URL.revokeObjectURL(url);
+  $('ckEdit').style.display='block';if(best.issue)$('ckIssue').value=best.issue;else $('ckIssue').value='';
+  ckBets=best.bets.length?best.bets:[{f:[],b:[]}];ckRenderBets();
+  msg.textContent=best.bets.length?('识别到 '+best.bets.length+' 注。请逐个核对号码（识别可能出错），改对后点开始对奖；'+(best.issue?'期号也核对一下。':'期号没认出来，请手动填票面期号。')):'还是没识别出成注的号码行：把票拍正、拍近一点重拍，或用手动输入。也可以把这张票的照片发到聊天里，我拿真票帮你调识别。';
  }catch(e){$('ckEdit').style.display='block';if(!ckBets.length){ckBets=[{f:[],b:[]}];ckRenderBets()}msg.textContent='识别没跑起来（可能没网，下不到识别引擎）。改用手动输入号码，照样能对奖。'}}
 
 // ===== 多通道信号：每个通道给出一套号码概率分布 =====
